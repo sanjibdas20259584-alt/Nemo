@@ -1,6 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
-import { encrypt, decrypt } from '@/lib/encryption'
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { encrypt, EncryptedData } from '@/lib/encryption'
+
+const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free'
 
 export async function GET() {
   const supabase = createClient()
@@ -12,7 +14,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('user_settings')
-    .select('openrouter_key_encrypted, openrouter_key_iv, openrouter_key_salt')
+    .select('default_model, openrouter_key_encrypted, openrouter_key_iv, openrouter_key_salt')
     .eq('user_id', user.id)
     .single()
 
@@ -20,20 +22,10 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  let apiKey = ''
-  if (data?.openrouter_key_encrypted) {
-    try {
-      apiKey = decrypt({
-        encrypted: data.openrouter_key_encrypted,
-        iv: data.openrouter_key_iv!,
-        salt: data.openrouter_key_salt!,
-      })
-    } catch {
-      apiKey = ''
-    }
-  }
-
-  return NextResponse.json({ hasKey: !!apiKey, apiKey })
+  return NextResponse.json({
+    defaultModel: data?.default_model || DEFAULT_MODEL,
+    hasKey: !!data?.openrouter_key_encrypted,
+  })
 }
 
 export async function POST(request: Request) {
@@ -44,13 +36,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { apiKey } = await request.json()
+  const body = await request.json()
+  const { apiKey, defaultModel } = body
 
-  if (!apiKey || !apiKey.startsWith('sk-or-')) {
-    return NextResponse.json({ error: 'Invalid OpenRouter API key format' }, { status: 400 })
+  if (!apiKey) {
+    return NextResponse.json({ error: 'API key is required' }, { status: 400 })
   }
 
-  const encrypted = encrypt(apiKey)
+  const encrypted: EncryptedData = encrypt(apiKey)
 
   const { error } = await supabase
     .from('user_settings')
@@ -59,6 +52,7 @@ export async function POST(request: Request) {
       openrouter_key_encrypted: encrypted.encrypted,
       openrouter_key_iv: encrypted.iv,
       openrouter_key_salt: encrypted.salt,
+      default_model: defaultModel || DEFAULT_MODEL,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' })
 

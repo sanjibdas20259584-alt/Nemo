@@ -7,9 +7,12 @@ const AUTH_TAG_LENGTH = 16
 const SALT_LENGTH = 16
 
 function getKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY
+  const secret = process.env.ENCRYPTION_SECRET
   if (!secret) {
-    throw new Error('ENCRYPTION_KEY environment variable is required')
+    throw new Error('ENCRYPTION_SECRET environment variable is required')
+  }
+  if (secret.length < 32) {
+    throw new Error('ENCRYPTION_SECRET must be at least 32 characters')
   }
   return scryptSync(secret, 'salt', KEY_LENGTH)
 }
